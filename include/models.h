@@ -78,4 +78,5 @@ public:
     std::time_t Get_created_at() const;
     RouteResult Get_route() const;
     void Set_status(OrderStatus status);
+    void Set_id(int value);
 };
