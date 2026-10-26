@@ -29,3 +29,31 @@ public:
     virtual bool findOrder(int id, Order &out) = 0;
     virtual void updateOrderStatus(int id, OrderStatus status) = 0;
 };
+
+class FixedGeocoder final : public IGeocoder
+{
+    Coordinates coordinates_;
+public:
+    explicit FixedGeocoder(Coordinates coordinates) : coordinates_(coordinates) {}
+    bool geocode(const std::string &, Coordinates &out) override
+    {
+        out = coordinates_;
+        return true;
+    }
+};
+
+class FixedRouteProvider final : public IRouteProvider
+{
+    RouteResult route_;
+    bool succeeds_;
+public:
+    explicit FixedRouteProvider(RouteResult route, bool succeeds = true)
+        : route_(route), succeeds_(succeeds) {}
+    bool getRoute(Coordinates, Coordinates, RouteResult &out) override
+    {
+        if (!succeeds_)
+            return false;
+        out = route_;
+        return true;
+    }
+};
