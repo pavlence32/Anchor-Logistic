@@ -1,5 +1,6 @@
 #pragma once
 #include <ctime>
+#include <functional>
 enum class OrderStatus
 {
     Created,
@@ -23,8 +24,7 @@ class StatusEvent
     OrderStatus old_status;
     OrderStatus new_status;
     public:
-    StatusEvent(int order_id,std::time_t time,OrderStatus old_status,OrderStatus new_status)
-    {};
+    StatusEvent(int order_id, std::time_t time, OrderStatus old_status, OrderStatus new_status);
     int Get_order() const;
     std::time_t Get_time() const;
     OrderStatus Get_oldstatus() const ;
