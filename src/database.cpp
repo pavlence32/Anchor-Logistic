@@ -714,3 +714,47 @@ bool Database::DeleteOrder(int id) {
     sqlite3_finalize(stmt);
     return success;
 }
+
+std::vector<Order> Database::GetOrdersByClient(int clientId) {
+    std::vector<Order> orders;
+
+    const char* sql =
+        "SELECT id, client_id, courier_id, weight_kg, transport, status, "
+        "created_at, distance_m, duration_s "
+        "FROM orders "
+        "WHERE client_id = ? "
+        "ORDER BY id;";
+
+    sqlite3_stmt* stmt = nullptr;
+
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "GetOrdersByClient prepare error: "
+                  << sqlite3_errmsg(db_) << '\n';
+        return orders;
+    }
+
+    sqlite3_bind_int(stmt, 1, clientId);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const int courierId = sqlite3_column_type(stmt, 2) == SQLITE_NULL ? 0 : sqlite3_column_int(stmt, 2);
+
+        const RouteResult route(
+            sqlite3_column_double(stmt, 7),
+            sqlite3_column_double(stmt, 8)
+        );
+
+        orders.emplace_back(
+            sqlite3_column_int(stmt, 0),
+            sqlite3_column_int(stmt, 1),
+            courierId,
+            sqlite3_column_double(stmt, 3),
+            TransportFromString(ColumnText(stmt, 4)),
+            StatusFromString(ColumnText(stmt, 5)),
+            static_cast<std::time_t>(sqlite3_column_int64(stmt, 6)),
+            route
+        );
+    }
+
+    sqlite3_finalize(stmt);
+    return orders;
+}
