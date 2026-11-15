@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 #include <iomanip>
-#include <chrono>
+#include <limits>
 #include "../include/database.h"
 #include "../include/LogisticService.h"
 #include "../include/interface.h"
@@ -31,6 +31,11 @@ public:
         return false;
     }
 
+    int addCourier(const std::string &name, Transport transport, bool available) override {
+        Courier courier(0, name, transport, available);
+        return db_.AddCourier(courier);
+    }
+
     std::vector<Courier> getCouriers() override {
         return db_.GetAllCouriers();
     }
@@ -55,7 +60,22 @@ public:
     void updateOrderStatus(int id, OrderStatus status) override {
         db_.UpdateOrderStatus(id, status);
     }
+
+    std::vector<Order> getOrdersByClient(int client_id) override {
+        return db_.GetOrdersByClient(client_id);
+    }
 };
+
+void seedInitialData(IRepository &repository)
+{
+    if (repository.getCouriers().empty())
+    {
+        repository.addCourier("Иван", Transport::Car, true);
+        repository.addCourier("Петр", Transport::Truck, true);
+        repository.addCourier("Сергей", Transport::Car, true);
+        repository.addCourier("Алексей", Transport::Truck, true);
+    }
+}
 
 #ifdef _WIN32
 #include <windows.h>
@@ -73,12 +93,9 @@ int main() {
         return 1;
     }
 
-    if (db.GetAllCouriers().empty()) {
-        db.AddCourier(Courier(0, "Иван", Transport::Car, true));
-        db.AddCourier(Courier(0, "Петр", Transport::Truck, true));
-    }
-
     SqliteRepositoryAdapter repository(db);
+    seedInitialData(repository);
+
     FixedGeocoder geocoder(Coordinates{27.5615, 53.9045});
     FixedRouteProvider router(RouteResult{5000.0, 600.0});
     LogisticService logistics(repository, geocoder, router, Coordinates{27.5615, 53.9045});
@@ -100,7 +117,7 @@ int main() {
         
         if (!(std::cin >> choice)) {
             std::cin.clear();
-            std::cin.ignore(10000, '\n');
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             continue;
         }
 
@@ -113,7 +130,7 @@ int main() {
                 std::cout << "Введите ID клиента: ";
                 if (!(std::cin >> clientId)) {
                     std::cin.clear();
-                    std::cin.ignore(10000, '\n');
+                    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
                     std::cout << "Некорректный ввод. Попробуйте снова.\n";
                     continue;
                 }
@@ -127,7 +144,7 @@ int main() {
                     
                     std::string name, phone, address;
                     std::cout << "Введите имя: ";
-                    std::cin.ignore();
+                    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
                     std::getline(std::cin, name);
                     std::cout << "Введите телефон: ";
                     std::getline(std::cin, phone);
@@ -148,15 +165,31 @@ int main() {
 
             if (choice == 1) {
                 double weight = 0.0;
-                std::cout << "Введите вес груза (кг): ";
-                std::cin >> weight;
+                while (true) {
+                    std::cout << "Введите вес груза (кг): ";
+                    if (!(std::cin >> weight)) {
+                        std::cin.clear();
+                        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                        std::cout << "Некорректный ввод. Попробуйте снова.\n";
+                        continue;
+                    }
+                    if (weight <= 0.0) {
+                        std::cout << "Вес должен быть больше нуля. Попробуйте снова.\n";
+                        continue;
+                    }
+                    break;
+                }
 
                 try {
                     Order order;
                     if (logistics.createOrder(clientId, weight, order)) {
-                        std::cout << "Заказ успешно создан! ID заказа: " << order.Get_id() 
+                        std::cout << "Заказ успешно создан! ID заказа: " << order.Get_id()
                                   << ", Курьер ID: " << order.Get_courier_id()
                                   << ", Транспорт: " << toString(order.Get_transport())
+                                  << ", Расстояние: " << std::fixed << std::setprecision(1)
+                                  << order.Get_route().distance_m / 1000.0 << " км"
+                                  << ", Время: " << std::setprecision(0)
+                                  << order.Get_route().duration_s / 60.0 << " мин"
                                   << ", Статус: " << toString(order.Get_status()) << "\n";
                         
                         simulation.enqueue(order.Get_id());
@@ -164,36 +197,36 @@ int main() {
                 } catch (const std::exception& e) {
                     std::cout << "Ошибка создания заказа: " << e.what() << "\n";
                 }
-            } else if (choice == 2) {
-                std::vector<Order> allOrders = db.GetAllOrders();
-                std::vector<Order> clientOrders;
-                for (const auto& ord : allOrders) {
-                    if (ord.Get_client_id() == clientId) {
-                        clientOrders.push_back(ord);
-                    }
-                }
+            }           
+            else if (choice == 2) {
+                std::vector<Order> clientOrders = repository.getOrdersByClient(clientId);
 
                 if (clientOrders.empty()) {
                     std::cout << "У данного клиента пока нет заказов.\n";
                     continue;
                 }
 
-                std::cout << "\n-------------------------------------------------------------------------\n"
+                std::cout << "\n-------------------------------------------------------------------------------------------------------------------\n"
                           << std::left << std::setw(6) << "ID"
                           << std::setw(12) << "Курьер ID"
-                          << std::setw(14) << "Вес (кг)"
-                          << std::setw(20) << "Транспорт"
-                          << std::setw(15) << "Статус" << "\n"
-                          << "-------------------------------------------------------------------------\n";
+                          << std::setw(12) << "Вес (кг)"
+                          << std::setw(22) << "Транспорт"
+                          << std::setw(15) << "Статус"
+                          << std::setw(14) << "Расст. (км)"
+                          << std::setw(12) << "Время (мин)" << "\n"
+                          << "-------------------------------------------------------------------------------------------------------------------\n";
 
                 for (const auto& ord : clientOrders) {
+                    const RouteResult route = ord.Get_route();
                     std::cout << std::left << std::setw(6) << ord.Get_id()
                               << std::setw(12) << ord.Get_courier_id()
-                              << std::setw(14) << ord.Get_weight_kg()
-                              << std::setw(20) << toString(ord.Get_transport())
-                              << std::setw(15) << toString(ord.Get_status()) << "\n";
+                              << std::setw(12) << std::fixed << std::setprecision(1) << ord.Get_weight_kg()
+                              << std::setw(22) << toString(ord.Get_transport())
+                              << std::setw(15) << toString(ord.Get_status())
+                              << std::setw(14) << std::fixed << std::setprecision(1) << route.distance_m / 1000.0
+                              << std::setw(12) << std::fixed << std::setprecision(0) << route.duration_s / 60.0 << "\n";
                 }
-                std::cout << "-------------------------------------------------------------------------\n";
+                std::cout << "-------------------------------------------------------------------------------------------------------------------\n";
             }
         }
     }
