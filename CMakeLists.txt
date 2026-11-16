@@ -15,6 +15,9 @@ endif()
 find_package(Threads REQUIRED)
 find_package(SQLite3 REQUIRED)
 
+# HTTPS-запросы к Nominatim и OSRM (cpp-httplib работает через OpenSSL).
+find_package(OpenSSL REQUIRED)
+
 # Разные версии CMake экспортируют разные имена цели SQLite3.
 if(TARGET SQLite3::SQLite3)
     set(SQLITE3_TARGET SQLite3::SQLite3)
@@ -30,10 +33,25 @@ add_library(anchor_core STATIC
     src/events.cpp
     src/models.cpp
     src/LogisticService.cpp
+    src/GeocodingService.cpp
+    src/RoutingService.cpp
 )
 
-target_include_directories(anchor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(anchor_core PUBLIC ${SQLITE3_TARGET} Threads::Threads)
+target_include_directories(anchor_core
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+    SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+)
+target_compile_definitions(anchor_core PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+# cpp-httplib использует функции OpenSSL, помеченные устаревшими в OpenSSL 4.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(anchor_core PRIVATE -Wno-deprecated-declarations)
+endif()
+target_link_libraries(anchor_core PUBLIC
+    ${SQLITE3_TARGET}
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
 
 add_executable(anchor_logistic src/main.cpp)
 target_link_libraries(anchor_logistic PRIVATE anchor_core)
@@ -50,6 +68,7 @@ if(BUILD_TESTING)
             test/test_service.cpp
             test/test_simulation.cpp
             test/test_events.cpp
+            test/test_geocoding.cpp
         )
         target_include_directories(anchor_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
         target_link_libraries(anchor_tests PRIVATE anchor_core Catch2::Catch2WithMain)

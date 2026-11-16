@@ -20,11 +20,11 @@
 | C++17 / C++20         | Основной язык разработки                        |
 | CMake                 | Сборка проекта                                  |
 | SQLite3               | Хранение данных в локальной базе                |
-| libosrm               | Расчёт маршрутов доставки                       |
-| OpenStreetMap         | Дорожные данные для OSRM                        |
 | Nominatim             | Перевод адреса в координаты (геокодирование)    |
-| libcurl               | HTTP-запросы к Nominatim                        |
-| nlohmann/json         | Разбор JSON-ответа Nominatim                    |
+| OSRM                  | Маршрутизация: расстояние и время доставки      |
+| cpp-httplib           | HTTP-клиент к Nominatim и OSRM (header-only)    |
+| nlohmann/json         | Разбор JSON-ответов (header-only)               |
+| OpenSSL               | HTTPS-соединения для cpp-httplib                |
 | `std::thread`         | Фоновая симуляция доставки                      |
 | `std::mutex`          | Защита общих данных между потоками              |
 | Git / GitHub          | Контроль версий и совместная разработка         |
@@ -113,7 +113,7 @@ LogisticsService
 | `LogisticsService` | Бизнес-правила: регистрация клиентов, создание заказов, назначение курьеров |
 | `Database`         | Все SQL-запросы и работа с SQLite                               |
 | `GeocodingService` | Перевод адреса в координаты через Nominatim                     |
-| `RoutingService`   | Работа с `libosrm`, расчёт маршрута и времени                   |
+| `RoutingService`   | Работа с публичным сервером OSRM, расчёт маршрута и времени |
 | `SimulationEngine` | Фоновое изменение статусов заказов                              |
 | `models`           | Структуры клиентов, заказов, курьеров и транспорта              |
 
@@ -141,12 +141,14 @@ LogisticsService
 GET https://nominatim.openstreetmap.org/search?q=<адрес>&format=json&limit=1&countrycodes=by
 ```
 
+Запросы выполняет класс `GeocodingService` (файлы `include/GeocodingService.h`, `src/GeocodingService.cpp`): HTTP — через cpp-httplib, разбор JSON — через nlohmann/json.
+
 Правила:
 
 - запрос выполняется один раз при регистрации клиента, координаты сохраняются в `clients`;
-- не чаще одного запроса в секунду;
+- не чаще одного запроса в секунду (интервал выдерживается внутри сервиса);
 - в каждом запросе указывается собственный `User-Agent`;
-- адрес в запросе кодируется (url-encode);
+- адрес в запросе кодируется (url-encode, включая кириллицу в UTF-8);
 - Nominatim возвращает `lat` и `lon` строками и в порядке `lat, lon`, а OSRM ждёт `lon, lat`, поэтому порядок меняется при сохранении;
 - если адрес не найден, пользователю предлагается ввести его заново.
 
@@ -154,24 +156,32 @@ GET https://nominatim.openstreetmap.org/search?q=<адрес>&format=json&limit=
 
 ## Интеграция OSRM
 
-Для маршрутов используются подготовленные данные OpenStreetMap (Беларусь, Geofabrik) в формате OSRM.
+Для маршрутов используется публичный демо-сервер OSRM:
 
 ```
 C++ приложение
     ↓
 RoutingService
     ↓
-libosrm
+cpp-httplib (HTTPS)
     ↓
-локальные данные дорожной сети OpenStreetMap
+router.project-osrm.org
+    ↓
+данные OpenStreetMap
 ```
 
-Планируемые возможности OSRM:
+Класс `RoutingService` находится в `include/RoutingService.h` и `src/RoutingService.cpp`. Запрос:
+
+```
+GET https://router.project-osrm.org/route/v1/driving/<lon1>,<lat1>;<lon2>,<lat2>?overview=false&alternatives=false&steps=false
+```
+
+Возможности:
 
 - `Route` — маршрут между складом и клиентом;
-- расстояние в метрах;
-- длительность в секундах;
-- обработка ошибок при отсутствии маршрута;
+- расстояние в метрах (`routes[0].distance`);
+- длительность в секундах (`routes[0].duration`);
+- проверка `code == "Ok"` и обработка ошибок при отсутствии маршрута;
 - `Table` — матрица расстояний между несколькими точками после завершения первой версии.
 
 OSRM использует координаты в порядке:
@@ -181,6 +191,26 @@ longitude, latitude
 ```
 
 Поэтому координаты клиентов и склада хранятся в этом формате.
+
+Демо-сервер не предназначен для высокой нагрузки. Архитектура скрывает его за интерфейсом `IRouteProvider`, поэтому позже можно без изменений в бизнес-логике перейти на собственный сервер OSRM с локальными данными OpenStreetMap.
+
+## Внешние библиотеки и сборка
+
+cpp-httplib и nlohmann/json — header-only, их файлы лежат в репозитории:
+
+```
+third_party/httplib.h
+third_party/nlohmann/json.hpp
+```
+
+Для сборки нужны CMake, SQLite3 и OpenSSL (для HTTPS), а для тестов — Catch2:
+
+```bash
+brew install cmake sqlite3 openssl catch2
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
 
 ## Распределение задач
 
@@ -224,10 +254,8 @@ longitude, latitude
 
 Задачи:
 
-- изучить и подключить `libosrm`;
-- подготовить локальные данные OpenStreetMap для разработки;
-- реализовать `RoutingService`: расстояние и время доставки, обработка ошибок маршрутизации;
-- реализовать `GeocodingService` на `libcurl` и Nominatim;
+- реализовать `RoutingService`: расстояние и время доставки через OSRM, обработка ошибок маршрутизации;
+- реализовать `GeocodingService` на cpp-httplib и Nominatim;
 - создать главное консольное меню (создать заказ, текущее состояние заказов, выход);
 - реализовать запрос ID клиента и сценарий регистрации нового клиента;
 - реализовать обновление таблицы заказов в реальном времени;
