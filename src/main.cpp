@@ -8,6 +8,8 @@
 #include "../include/interface.h"
 #include "../include/models.h"
 #include "../include/events.h"
+#include "../include/GeocodingService.h"
+#include "../include/RoutingService.h"
 
 class SqliteRepositoryAdapter : public IRepository {
 private:
@@ -113,9 +115,11 @@ int main() {
     SqliteRepositoryAdapter repository(db);
     seedInitialData(repository);
 
-    FixedGeocoder geocoder(Coordinates{27.5615, 53.9045});
-    FixedRouteProvider router(RouteResult{5000.0, 600.0});
-    LogisticService logistics(repository, geocoder, router, Coordinates{27.5615, 53.9045});
+    // Склад в Минске; координаты хранятся в формате OSRM: longitude, latitude.
+    const Coordinates warehouse{27.5615, 53.9045};
+    GeocodingService geocoder;
+    RoutingService router;
+    LogisticService logistics(repository, geocoder, router, warehouse);
 
     SimulationEngine simulation(repository, std::chrono::milliseconds(2000));
     simulation.subscribe([](const StatusEvent &event) {
