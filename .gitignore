@@ -1,2 +1,4 @@
 *.exe
+*.db
 .DS_Store
+build/

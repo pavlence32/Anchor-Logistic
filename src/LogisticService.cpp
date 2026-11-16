@@ -100,16 +100,26 @@ void LogisticService::cancelOrder(int order_id)
     Order order;
     if (!repository_.findOrder(order_id, order))
         throw std::invalid_argument("Заказ не найден");
+    if (order.Get_status() == OrderStatus::Cancelled)
+        return;
     if (order.Get_status() != OrderStatus::Created &&
         order.Get_status() != OrderStatus::Assigned)
         throw std::logic_error("Заказ уже начал доставляться");
     repository_.updateOrderStatus(order_id, OrderStatus::Cancelled);
-    repository_.setCourierAvailable(order.Get_courier_id(), true);
+    if (order.Get_courier_id() > 0)
+        repository_.setCourierAvailable(order.Get_courier_id(), true);
 }
 
 SimulationEngine::SimulationEngine(IRepository &repository,
-                                   std::chrono::milliseconds step)
-    : repository_(repository), step_(step) {}
+                                   std::chrono::milliseconds step,
+                                   double time_scale)
+    : repository_(repository), step_(step), time_scale_(time_scale)
+{
+    if (step_ <= std::chrono::milliseconds(0))
+        throw std::invalid_argument("Шаг симуляции должен быть положительным");
+    if (!(time_scale_ > 0.0))
+        throw std::invalid_argument("Масштаб времени должен быть положительным");
+}
 
 SimulationEngine::~SimulationEngine() { stop(); }
 
@@ -139,7 +149,7 @@ void SimulationEngine::enqueue(int order_id)
         std::lock_guard<std::mutex> lock(mutex_);
         pending_orders_.push(order_id);
     }
-    condition_.notify_one();
+    condition_.notify_all();
 }
 
 void SimulationEngine::start(int order_id)
@@ -161,12 +171,50 @@ void SimulationEngine::stop()
         worker_.join();
     std::lock_guard<std::mutex> lock(mutex_);
     running_ = false;
+    processing_ = false;
 }
 
 bool SimulationEngine::running() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return running_;
+}
+
+std::chrono::milliseconds SimulationEngine::deliveryDelay(const Order &order) const
+{
+    const double factor =
+        order.Get_transport() == Transport::Truck ? truck_duration_factor : 1.0;
+    const double simulated_seconds =
+        order.Get_route().duration_s * factor / time_scale_;
+    const auto delay = std::chrono::milliseconds(
+        static_cast<long long>(simulated_seconds * 1000.0));
+    return std::max(step_, delay);
+}
+
+void SimulationEngine::resumeActiveOrders()
+{
+    for (const Order &order : repository_.getActiveOrders())
+    {
+        if (order.Get_status() == OrderStatus::Assigned ||
+            order.Get_status() == OrderStatus::InTransit)
+            enqueue(order.Get_id());
+    }
+}
+
+void SimulationEngine::waitUntilIdle()
+{
+    std::unique_lock<std::mutex> lock(mutex_);
+    condition_.wait(lock, [this] {
+        return pending_orders_.empty() && !processing_;
+    });
+}
+
+bool SimulationEngine::sleepWhileActive(std::chrono::milliseconds duration)
+{
+    std::unique_lock<std::mutex> lock(mutex_);
+    return !condition_.wait_for(lock, duration, [this] {
+        return stopping_;
+    });
 }
 
 void SimulationEngine::run()
@@ -179,12 +227,18 @@ void SimulationEngine::run()
             condition_.wait(lock, [this] {
                 return stopping_ || !pending_orders_.empty();
             });
-            if (stopping_ && pending_orders_.empty())
+            if (stopping_)
                 return;
             order_id = pending_orders_.front();
             pending_orders_.pop();
+            processing_ = true;
         }
         processOrder(order_id);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            processing_ = false;
+        }
+        condition_.notify_all();
     }
 }
 
@@ -211,15 +265,27 @@ void SimulationEngine::processOrder(int order_id)
     Order order;
     if (!repository_.findOrder(order_id, order))
         return;
+
     if (order.Get_status() == OrderStatus::Assigned)
     {
-        std::this_thread::sleep_for(step_);
+        if (!sleepWhileActive(step_))
+            return;
+        // Заказ могли отменить или изменить, пока шла пауза.
+        if (!repository_.findOrder(order_id, order) ||
+            order.Get_status() != OrderStatus::Assigned)
+            return;
         changeStatus(order, OrderStatus::InTransit);
     }
+
     if (order.Get_status() == OrderStatus::InTransit)
     {
-        std::this_thread::sleep_for(step_);
+        if (!sleepWhileActive(deliveryDelay(order)))
+            return;
+        if (!repository_.findOrder(order_id, order) ||
+            order.Get_status() != OrderStatus::InTransit)
+            return;
         changeStatus(order, OrderStatus::Delivered);
-        repository_.setCourierAvailable(order.Get_courier_id(), true);
+        if (order.Get_courier_id() > 0)
+            repository_.setCourierAvailable(order.Get_courier_id(), true);
     }
 }

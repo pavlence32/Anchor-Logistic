@@ -22,6 +22,9 @@ public:
     int AddCourier(const Courier& courier);
     int AddOrder(const Order& order);
 
+    std::vector<Order> GetOrdersByClient(int clientId);
+    std::vector<Order> GetActiveOrders();
+
     std::optional<Client> GetClient(int id);
     std::optional<Courier> GetCourier(int id);
     std::optional<Order> GetOrder(int id);
