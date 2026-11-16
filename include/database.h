@@ -23,21 +23,19 @@ public:
     std::vector<Client> GetAllClients();
     bool DeleteClient(int id);
 
-    int AddVehicle(const Vehicle& vehicle);
-    std::optional<Vehicle> GetVehicle(int id);
-    std::vector<Vehicle> GetAllVehicles();
-
     int AddCourier(const Courier& courier);
     std::optional<Courier> GetCourier(int id);
-    std::optional<Courier> FindFreeCourier(int vehicleId);
+    std::optional<Courier> FindFreeCourier(Transport transport);
     std::vector<Courier> GetAllCouriers();
     bool UpdateCourierAvailability(int courierId, bool available);
     bool DeleteCourier(int id);
 
-    int AddOrder(const Order& order, double distanceMeters, double durationSeconds);
+    int AddOrder(const Order& order);
     std::optional<Order> GetOrder(int id);
     std::vector<Order> GetAllOrders();
-    bool UpdateOrderStatus(int orderId, const std::string& status);
+    std::vector<Order> GetOrdersByClient(int clientId);
+    std::vector<Order> GetActiveOrders();
+    bool UpdateOrderStatus(int orderId, OrderStatus status);
     bool AssignCourierToOrder(int orderId, int courierId);
     bool DeleteOrder(int id);
 
@@ -47,4 +45,7 @@ private:
 
     bool CreateTables();
     bool Execute(const std::string& sql);
+
+    static OrderStatus StatusFromString(const std::string& value);
+    static Transport TransportFromString(const std::string& value);
 };

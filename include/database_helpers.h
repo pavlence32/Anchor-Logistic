@@ -3,6 +3,8 @@
 #include <sqlite3.h>
 #include <string>
 
+#include "events.h"
+
 namespace db_internal {
 
 constexpr int kBusyTimeoutMs = 3000;
@@ -13,6 +15,27 @@ inline std::string ColumnText(sqlite3_stmt* stmt, int column) {
         return {};
     }
     return reinterpret_cast<const char*>(text);
+}
+
+inline const char* StatusToDb(OrderStatus status) {
+    switch (status) {
+        case OrderStatus::Created:
+            return "Created";
+        case OrderStatus::Assigned:
+            return "Assigned";
+        case OrderStatus::InTransit:
+            return "InTransit";
+        case OrderStatus::Delivered:
+            return "Delivered";
+        case OrderStatus::Cancelled:
+            return "Cancelled";
+    }
+
+    return "Created";
+}
+
+inline const char* TransportToDb(Transport transport) {
+    return transport == Transport::Truck ? "Truck" : "Car";
 }
 
 class StatementGuard {

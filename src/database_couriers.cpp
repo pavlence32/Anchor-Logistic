@@ -17,7 +17,9 @@ int Database::AddCourier(const Courier& courier) {
     db_internal::StatementGuard guard(stmt);
 
     sqlite3_bind_text(stmt, 1, courier.Get_name().c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, toString(courier.Get_transport()), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(
+        stmt, 2, db_internal::TransportToDb(courier.Get_transport()),
+        -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, courier.Is_available() ? 1 : 0);
 
     if (sqlite3_step(stmt) == SQLITE_DONE) {
@@ -42,7 +44,8 @@ std::optional<Courier> Database::FindFreeCourier(Transport transport) {
     }
     db_internal::StatementGuard guard(stmt);
 
-    sqlite3_bind_text(stmt, 1, toString(transport), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(
+        stmt, 1, db_internal::TransportToDb(transport), -1, SQLITE_TRANSIENT);
 
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         return Courier(
@@ -130,10 +133,6 @@ bool Database::UpdateCourierAvailability(int courierId, bool available) {
     }
 
     return true;
-}
-
-bool Database::SetCourierBusy(int courierId, bool busy) {
-    return UpdateCourierAvailability(courierId, !busy);
 }
 
 bool Database::DeleteCourier(int id) {

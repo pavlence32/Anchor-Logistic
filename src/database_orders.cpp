@@ -29,8 +29,12 @@ int Database::AddOrder(const Order& order) {
     }
 
     sqlite3_bind_double(stmt, 3, order.Get_weight_kg());
-    sqlite3_bind_text(stmt, 4, toString(order.Get_transport()), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, toString(order.Get_status()), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(
+        stmt, 4, db_internal::TransportToDb(order.Get_transport()),
+        -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(
+        stmt, 5, db_internal::StatusToDb(order.Get_status()),
+        -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 6, static_cast<sqlite3_int64>(order.Get_created_at()));
     sqlite3_bind_double(stmt, 7, route.distance_m);
     sqlite3_bind_double(stmt, 8, route.duration_s);
@@ -138,7 +142,8 @@ bool Database::UpdateOrderStatus(int orderId, OrderStatus status) {
     }
     db_internal::StatementGuard guard(stmt);
 
-    sqlite3_bind_text(stmt, 1, toString(status), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(
+        stmt, 1, db_internal::StatusToDb(status), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 2, orderId);
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
@@ -163,7 +168,9 @@ bool Database::AssignCourierToOrder(int orderId, int courierId) {
     db_internal::StatementGuard guard(stmt);
 
     sqlite3_bind_int(stmt, 1, courierId);
-    sqlite3_bind_text(stmt, 2, toString(OrderStatus::Assigned), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(
+        stmt, 2, db_internal::StatusToDb(OrderStatus::Assigned),
+        -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 3, orderId);
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
@@ -194,4 +201,88 @@ bool Database::DeleteOrder(int id) {
     }
 
     return true;
+}
+
+std::vector<Order> Database::GetOrdersByClient(int clientId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<Order> orders;
+
+    const char* sql =
+        "SELECT id, client_id, courier_id, weight_kg, transport, status, "
+        "created_at, distance_m, duration_s "
+        "FROM orders WHERE client_id = ? ORDER BY id;";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "GetOrdersByClient prepare error: " << sqlite3_errmsg(db_) << '\n';
+        return orders;
+    }
+    db_internal::StatementGuard guard(stmt);
+
+    sqlite3_bind_int(stmt, 1, clientId);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const int courierId = sqlite3_column_type(stmt, 2) == SQLITE_NULL
+                                  ? 0
+                                  : sqlite3_column_int(stmt, 2);
+
+        const RouteResult route(
+            sqlite3_column_double(stmt, 7),
+            sqlite3_column_double(stmt, 8)
+        );
+
+        orders.emplace_back(
+            sqlite3_column_int(stmt, 0),
+            sqlite3_column_int(stmt, 1),
+            courierId,
+            sqlite3_column_double(stmt, 3),
+            TransportFromString(db_internal::ColumnText(stmt, 4)),
+            StatusFromString(db_internal::ColumnText(stmt, 5)),
+            static_cast<std::time_t>(sqlite3_column_int64(stmt, 6)),
+            route
+        );
+    }
+
+    return orders;
+}
+
+std::vector<Order> Database::GetActiveOrders() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<Order> orders;
+
+    const char* sql =
+        "SELECT id, client_id, courier_id, weight_kg, transport, status, "
+        "created_at, distance_m, duration_s "
+        "FROM orders WHERE status IN ('Assigned', 'InTransit') ORDER BY id;";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "GetActiveOrders prepare error: " << sqlite3_errmsg(db_) << '\n';
+        return orders;
+    }
+    db_internal::StatementGuard guard(stmt);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const int courierId = sqlite3_column_type(stmt, 2) == SQLITE_NULL
+                                  ? 0
+                                  : sqlite3_column_int(stmt, 2);
+
+        const RouteResult route(
+            sqlite3_column_double(stmt, 7),
+            sqlite3_column_double(stmt, 8)
+        );
+
+        orders.emplace_back(
+            sqlite3_column_int(stmt, 0),
+            sqlite3_column_int(stmt, 1),
+            courierId,
+            sqlite3_column_double(stmt, 3),
+            TransportFromString(db_internal::ColumnText(stmt, 4)),
+            StatusFromString(db_internal::ColumnText(stmt, 5)),
+            static_cast<std::time_t>(sqlite3_column_int64(stmt, 6)),
+            route
+        );
+    }
+
+    return orders;
 }
