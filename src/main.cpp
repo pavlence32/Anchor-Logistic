@@ -85,17 +85,6 @@ public:
     }
 };
 
-void seedInitialData(IRepository &repository)
-{
-    if (repository.getCouriers().empty())
-    {
-        repository.addCourier("Иван", Transport::Car, true);
-        repository.addCourier("Петр", Transport::Truck, true);
-        repository.addCourier("Сергей", Transport::Car, true);
-        repository.addCourier("Алексей", Transport::Truck, true);
-    }
-}
-
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -112,8 +101,11 @@ int main() {
         return 1;
     }
 
+    if (!db.SeedInitialData()) {
+        std::cerr << "Не удалось заполнить стартовые данные\n";
+    }
+
     SqliteRepositoryAdapter repository(db);
-    seedInitialData(repository);
 
     // Склад в Минске; координаты хранятся в формате OSRM: longitude, latitude.
     const Coordinates warehouse{27.5615, 53.9045};

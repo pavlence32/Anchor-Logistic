@@ -4,7 +4,7 @@
 #include <iostream>
 
 int Database::AddClient(const Client& client) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
 
     const char* sql =
         "INSERT INTO clients (name, phone, address, longitude, latitude) "
@@ -33,7 +33,7 @@ int Database::AddClient(const Client& client) {
 }
 
 std::optional<Client> Database::GetClient(int id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
 
     const char* sql =
         "SELECT id, name, phone, address, longitude, latitude "
@@ -67,7 +67,7 @@ std::optional<Client> Database::GetClient(int id) {
 }
 
 std::vector<Client> Database::GetAllClients() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     std::vector<Client> clients;
 
     const char* sql =
@@ -100,7 +100,7 @@ std::vector<Client> Database::GetAllClients() {
 }
 
 bool Database::DeleteClient(int id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
 
     const char* sql = "DELETE FROM clients WHERE id = ?;";
 
@@ -118,5 +118,5 @@ bool Database::DeleteClient(int id) {
         return false;
     }
 
-    return true;
+    return sqlite3_changes(db_) > 0;
 }

@@ -4,7 +4,7 @@
 #include <iostream>
 
 int Database::AddCourier(const Courier& courier) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
 
     const char* sql =
         "INSERT INTO couriers (name, transport, available) VALUES (?, ?, ?);";
@@ -31,7 +31,7 @@ int Database::AddCourier(const Courier& courier) {
 }
 
 std::optional<Courier> Database::FindFreeCourier(Transport transport) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
 
     const char* sql =
         "SELECT id, name, transport, available "
@@ -60,7 +60,7 @@ std::optional<Courier> Database::FindFreeCourier(Transport transport) {
 }
 
 std::optional<Courier> Database::GetCourier(int id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
 
     const char* sql =
         "SELECT id, name, transport, available FROM couriers WHERE id = ?;";
@@ -87,7 +87,7 @@ std::optional<Courier> Database::GetCourier(int id) {
 }
 
 std::vector<Courier> Database::GetAllCouriers() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     std::vector<Courier> couriers;
 
     const char* sql =
@@ -113,7 +113,7 @@ std::vector<Courier> Database::GetAllCouriers() {
 }
 
 bool Database::UpdateCourierAvailability(int courierId, bool available) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
 
     const char* sql = "UPDATE couriers SET available = ? WHERE id = ?;";
 
@@ -132,11 +132,11 @@ bool Database::UpdateCourierAvailability(int courierId, bool available) {
         return false;
     }
 
-    return true;
+    return sqlite3_changes(db_) > 0;
 }
 
 bool Database::DeleteCourier(int id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
 
     const char* sql = "DELETE FROM couriers WHERE id = ?;";
 
@@ -154,5 +154,5 @@ bool Database::DeleteCourier(int id) {
         return false;
     }
 
-    return true;
+    return sqlite3_changes(db_) > 0;
 }
