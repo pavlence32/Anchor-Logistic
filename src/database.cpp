@@ -4,7 +4,7 @@
 #include <iostream>
 
 Database::Database(const std::string& dbPath) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
 
     if (sqlite3_open(dbPath.c_str(), &db_) != SQLITE_OK) {
         std::cerr << "Cannot open database: "
@@ -26,7 +26,16 @@ Database::Database(const std::string& dbPath) {
 }
 
 Database::~Database() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+
+    if (transactionActive_) {
+        Execute("ROLLBACK;");
+        transactionActive_ = false;
+        if (transactionLock_.owns_lock()) {
+            transactionLock_.unlock();
+        }
+    }
+
     if (db_ != nullptr) {
         sqlite3_close(db_);
         db_ = nullptr;
@@ -34,7 +43,7 @@ Database::~Database() {
 }
 
 bool Database::isOpen() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     return db_ != nullptr;
 }
 
@@ -74,6 +83,14 @@ bool Database::CreateTables() {
             latitude  REAL NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS vehicles (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            type         TEXT NOT NULL CHECK (type IN ('Car', 'Truck')),
+            capacity_kg  REAL NOT NULL CHECK (capacity_kg > 0),
+            speed_kmh    REAL NOT NULL CHECK (speed_kmh > 0),
+            is_available INTEGER NOT NULL DEFAULT 1 CHECK (is_available IN (0, 1))
+        );
+
         CREATE TABLE IF NOT EXISTS couriers (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
             name      TEXT NOT NULL,
@@ -97,8 +114,6 @@ bool Database::CreateTables() {
                 )
             ),
             created_at   INTEGER NOT NULL,
-            distance_m   REAL NOT NULL DEFAULT 0,
-            duration_s   REAL NOT NULL DEFAULT 0,
 
             FOREIGN KEY (client_id)
                 REFERENCES clients(id)
@@ -109,6 +124,17 @@ bool Database::CreateTables() {
                 ON DELETE SET NULL
         );
 
+        CREATE TABLE IF NOT EXISTS routes (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id         INTEGER NOT NULL UNIQUE,
+            distance_meters  REAL NOT NULL CHECK (distance_meters >= 0),
+            duration_seconds REAL NOT NULL CHECK (duration_seconds >= 0),
+
+            FOREIGN KEY (order_id)
+                REFERENCES orders(id)
+                ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_orders_status
             ON orders(status);
 
@@ -117,6 +143,9 @@ bool Database::CreateTables() {
 
         CREATE INDEX IF NOT EXISTS idx_couriers_available
             ON couriers(transport, available);
+
+        CREATE INDEX IF NOT EXISTS idx_vehicles_available
+            ON vehicles(type, is_available);
     )SQL";
 
     return Execute(schema);
@@ -133,4 +162,79 @@ OrderStatus Database::StatusFromString(const std::string& value) {
 Transport Database::TransportFromString(const std::string& value) {
     if (value == "Truck") return Transport::Truck;
     return Transport::Car;
+}
+
+bool Database::SeedInitialData() {
+    if (!BeginTransaction()) {
+        return false;
+    }
+
+    bool ok = true;
+
+    if (GetAllVehicles().empty()) {
+        ok = AddVehicle(Vehicle(0, Transport::Car, 20.0, 60.0, true)) > 0 && ok;
+        ok = AddVehicle(Vehicle(0, Transport::Truck, 1000.0, 50.0, true)) > 0 && ok;
+    }
+
+    if (GetAllCouriers().empty()) {
+        ok = AddCourier(Courier(0, "Иван", Transport::Car, true)) > 0 && ok;
+        ok = AddCourier(Courier(0, "Петр", Transport::Truck, true)) > 0 && ok;
+        ok = AddCourier(Courier(0, "Сергей", Transport::Car, true)) > 0 && ok;
+        ok = AddCourier(Courier(0, "Алексей", Transport::Truck, true)) > 0 && ok;
+    }
+
+    if (!ok) {
+        Rollback();
+        return false;
+    }
+
+    return Commit();
+}
+
+bool Database::BeginTransaction() {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+
+    if (transactionActive_) {
+        return false;
+    }
+
+    transactionLock_ = std::unique_lock<std::recursive_mutex>(mutex_);
+
+    if (!Execute("BEGIN IMMEDIATE TRANSACTION;")) {
+        transactionLock_.unlock();
+        return false;
+    }
+
+    transactionActive_ = true;
+    return true;
+}
+
+bool Database::Commit() {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+
+    if (!transactionActive_) {
+        return false;
+    }
+
+    const bool committed = Execute("COMMIT;");
+    if (!committed) {
+        Execute("ROLLBACK;");
+    }
+
+    transactionActive_ = false;
+    transactionLock_.unlock();
+    return committed;
+}
+
+bool Database::Rollback() {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+
+    if (!transactionActive_) {
+        return false;
+    }
+
+    const bool rolledBack = Execute("ROLLBACK;");
+    transactionActive_ = false;
+    transactionLock_.unlock();
+    return rolledBack;
 }

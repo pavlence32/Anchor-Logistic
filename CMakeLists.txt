@@ -30,6 +30,7 @@ add_library(anchor_core STATIC
     src/database_clients.cpp
     src/database_couriers.cpp
     src/database_orders.cpp
+    src/database_vehicles.cpp
     src/events.cpp
     src/models.cpp
     src/LogisticService.cpp
@@ -53,6 +54,11 @@ target_link_libraries(anchor_core PUBLIC
     OpenSSL::Crypto
 )
 
+# cpp-httplib использует Winsock и хранилище сертификатов Windows.
+if(WIN32)
+    target_link_libraries(anchor_core PUBLIC ws2_32 crypt32)
+endif()
+
 add_executable(anchor_logistic src/main.cpp)
 target_link_libraries(anchor_logistic PRIVATE anchor_core)
 
@@ -65,6 +71,7 @@ if(BUILD_TESTING)
         include(Catch)
 
         add_executable(anchor_tests
+            test/test_database.cpp
             test/test_service.cpp
             test/test_simulation.cpp
             test/test_events.cpp

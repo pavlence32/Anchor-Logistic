@@ -54,6 +54,25 @@ public:
     void Set_available(bool value);
 };
 
+class Vehicle
+{
+private:
+    int id;
+    Transport type;
+    double capacity_kg;
+    double speed_kmh;
+    bool available;
+public:
+    Vehicle();
+    Vehicle(int id, Transport type, double capacity_kg, double speed_kmh, bool available);
+    int Get_id() const;
+    Transport Get_type() const;
+    double Get_capacity_kg() const;
+    double Get_speed_kmh() const;
+    bool Is_available() const;
+    void Set_available(bool value);
+};
+
 class Order
 {
 private:
