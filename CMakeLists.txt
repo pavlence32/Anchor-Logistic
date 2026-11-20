@@ -59,7 +59,8 @@ if(WIN32)
     target_link_libraries(anchor_core PUBLIC ws2_32 crypt32)
 endif()
 
-add_executable(anchor_logistic src/main.cpp)
+# Точка входа приложения вынесена из src/main.cpp (файл оставлен пустым).
+add_executable(anchor_logistic src/app.cpp)
 target_link_libraries(anchor_logistic PRIVATE anchor_core)
 
 include(CTest)
