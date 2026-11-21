@@ -2,15 +2,17 @@
 
 #include <filesystem>
 #include <iostream>
+#include <stdexcept>
 #include <utility>
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #if defined(_WIN32)
 #include <GL/gl.h>
-#else
-#include <GLFW/glfw3.h>
 #endif
+
+#include "LogisticService.h"
+#include "models.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
@@ -23,10 +25,14 @@ void glfwErrorCallback(int error, const char* description) {
               << (description ? description : "неизвестно") << '\n';
 }
 
-} 
+}  // namespace
 
-ImGuiApp::ImGuiApp(int width, int height, std::string title)
-    : width_(width), height_(height), title_(std::move(title)) {}
+ImGuiApp::ImGuiApp(int width, int height, std::string title,
+                   LogisticService& logistics)
+    : width_(width),
+      height_(height),
+      title_(std::move(title)),
+      logistics_(logistics) {}
 
 ImGuiApp::~ImGuiApp() {
     shutdown();
@@ -58,7 +64,7 @@ bool ImGuiApp::init() {
     }
 
     glfwMakeContextCurrent(window_);
-    glfwSwapInterval(1); 
+    glfwSwapInterval(1);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -103,14 +109,89 @@ bool ImGuiApp::loadCyrillicFont() {
     return false;
 }
 
+void ImGuiApp::renderClientSection() {
+    ImGui::Text("1. Клиент (поиск по ID или регистрация)");
+    ImGui::Separator();
+
+    ImGui::InputInt("ID клиента", &client_id_input_);
+    ImGui::SameLine();
+    if (ImGui::Button("Найти клиента")) {
+        Client client;
+        if (logistics_.findClient(client_id_input_, client)) {
+            active_client_id_ = client.Get_id();
+            active_client_info_ =
+                "ID: " + std::to_string(client.Get_id()) +
+                " | " + client.Get_name() +
+                " | " + client.Get_phone() +
+                " | " + client.Get_address();
+            client_status_message_ = "Клиент найден и выбран.";
+            client_status_is_error_ = false;
+        } else {
+            active_client_id_ = 0;
+            active_client_info_.clear();
+            client_status_message_ =
+                "Клиент с таким ID не найден. Можно зарегистрировать нового ниже.";
+            client_status_is_error_ = true;
+        }
+    }
+
+    if (!active_client_info_.empty()) {
+        ImGui::TextWrapped("Активный клиент: %s", active_client_info_.c_str());
+    }
+
+    ImGui::Spacing();
+    ImGui::Text("Регистрация нового клиента");
+    ImGui::InputText("Имя", reg_name_, sizeof(reg_name_));
+    ImGui::InputText("Телефон", reg_phone_, sizeof(reg_phone_));
+    ImGui::InputText("Адрес", reg_address_, sizeof(reg_address_));
+
+    if (ImGui::Button("Зарегистрировать")) {
+        try {
+            const int new_id = logistics_.registerClient(
+                reg_name_, reg_phone_, reg_address_);
+            client_id_input_ = new_id;
+            active_client_id_ = new_id;
+
+            Client client;
+            if (logistics_.findClient(new_id, client)) {
+                active_client_info_ =
+                    "ID: " + std::to_string(client.Get_id()) +
+                    " | " + client.Get_name() +
+                    " | " + client.Get_phone() +
+                    " | " + client.Get_address();
+            } else {
+                active_client_info_ = "ID: " + std::to_string(new_id);
+            }
+
+            reg_name_[0] = '\0';
+            reg_phone_[0] = '\0';
+            reg_address_[0] = '\0';
+            client_status_message_ =
+                "Клиент зарегистрирован, ID: " + std::to_string(new_id);
+            client_status_is_error_ = false;
+        } catch (const std::invalid_argument& e) {
+            client_status_message_ = std::string("Ошибка ввода: ") + e.what();
+            client_status_is_error_ = true;
+        } catch (const std::runtime_error& e) {
+            client_status_message_ = std::string("Ошибка регистрации: ") + e.what();
+            client_status_is_error_ = true;
+        }
+    }
+
+    if (!client_status_message_.empty()) {
+        ImVec4 color = client_status_is_error_
+                           ? ImVec4(0.95f, 0.35f, 0.35f, 1.0f)
+                           : ImVec4(0.35f, 0.85f, 0.45f, 1.0f);
+        ImGui::TextColored(color, "%s", client_status_message_.c_str());
+    }
+}
+
 void ImGuiApp::renderFrame() {
     ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(760.0f, 520.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(820.0f, 560.0f), ImGuiCond_FirstUseEver);
 
-    ImGui::Begin("Anchor Logistic — UI");
-    ImGui::Text("Окно Dear ImGui запущено и готово к подключению логики.");
-    ImGui::Separator();
-    ImGui::Text("Следующий шаг: клиент, создание заказа и таблица статусов.");
+    ImGui::Begin("Anchor Logistic");
+    renderClientSection();
     ImGui::End();
 }
 
