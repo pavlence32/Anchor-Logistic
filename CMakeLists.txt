@@ -18,6 +18,21 @@ find_package(SQLite3 REQUIRED)
 # HTTPS-запросы к Nominatim и OSRM (cpp-httplib работает через OpenSSL).
 find_package(OpenSSL REQUIRED)
 
+# Зависимости для оконного интерфейса Dear ImGui (GLFW + OpenGL).
+include(FetchContent)
+find_package(glfw3 REQUIRED)
+find_package(OpenGL REQUIRED)
+
+set(IMGUI_BUILD_DEMO_WINDOWS OFF CACHE BOOL "" FORCE)
+set(IMGUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.91.5
+)
+FetchContent_MakeAvailable(imgui)
+
 # Разные версии CMake экспортируют разные имена цели SQLite3.
 if(TARGET SQLite3::SQLite3)
     set(SQLITE3_TARGET SQLite3::SQLite3)
@@ -59,8 +74,30 @@ if(WIN32)
     target_link_libraries(anchor_core PUBLIC ws2_32 crypt32)
 endif()
 
+add_library(imgui_ui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+)
+
+target_include_directories(imgui_ui PUBLIC
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
+
+target_link_libraries(imgui_ui PUBLIC
+    glfw
+    OpenGL::GL
+)
+
 add_executable(anchor_logistic src/main.cpp)
-target_link_libraries(anchor_logistic PRIVATE anchor_core)
+target_link_libraries(anchor_logistic PRIVATE
+    anchor_core
+    imgui_ui
+)
 
 include(CTest)
 
