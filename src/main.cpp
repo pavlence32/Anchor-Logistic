@@ -8,21 +8,28 @@
 #include "../include/interface.h"
 #include "../include/models.h"
 #include "../include/events.h"
+#include "../include/GeocodingService.h"
+#include "../include/RoutingService.h"
 
 class SqliteRepositoryAdapter : public IRepository {
 private:
     Database& db_;
+    // Симуляция работает в отдельном потоке, поэтому все обращения к базе
+    // сериализуются одним мьютексом.
+    std::mutex mutex_;
 
 public:
     explicit SqliteRepositoryAdapter(Database& db) : db_(db) {}
 
     int addClient(const std::string &name, const std::string &phone,
                   const std::string &address, Coordinates coords) override {
+        std::lock_guard<std::mutex> lock(mutex_);
         Client client(0, name, phone, address, coords);
         return db_.AddClient(client);
     }
 
     bool findClient(int id, Client &out) override {
+        std::lock_guard<std::mutex> lock(mutex_);
         auto clientOpt = db_.GetClient(id);
         if (clientOpt.has_value()) {
             out = clientOpt.value();
@@ -32,23 +39,28 @@ public:
     }
 
     int addCourier(const std::string &name, Transport transport, bool available) override {
+        std::lock_guard<std::mutex> lock(mutex_);
         Courier courier(0, name, transport, available);
         return db_.AddCourier(courier);
     }
 
     std::vector<Courier> getCouriers() override {
+        std::lock_guard<std::mutex> lock(mutex_);
         return db_.GetAllCouriers();
     }
 
     void setCourierAvailable(int courier_id, bool value) override {
+        std::lock_guard<std::mutex> lock(mutex_);
         db_.UpdateCourierAvailability(courier_id, value);
     }
 
     int addOrder(const Order &order) override {
+        std::lock_guard<std::mutex> lock(mutex_);
         return db_.AddOrder(order);
     }
 
     bool findOrder(int id, Order &out) override {
+        std::lock_guard<std::mutex> lock(mutex_);
         auto orderOpt = db_.GetOrder(id);
         if (orderOpt.has_value()) {
             out = orderOpt.value();
@@ -58,11 +70,18 @@ public:
     }
 
     void updateOrderStatus(int id, OrderStatus status) override {
+        std::lock_guard<std::mutex> lock(mutex_);
         db_.UpdateOrderStatus(id, status);
     }
 
     std::vector<Order> getOrdersByClient(int client_id) override {
+        std::lock_guard<std::mutex> lock(mutex_);
         return db_.GetOrdersByClient(client_id);
+    }
+
+    std::vector<Order> getActiveOrders() override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return db_.GetActiveOrders();
     }
 };
 
@@ -96,9 +115,11 @@ int main() {
     SqliteRepositoryAdapter repository(db);
     seedInitialData(repository);
 
-    FixedGeocoder geocoder(Coordinates{27.5615, 53.9045});
-    FixedRouteProvider router(RouteResult{5000.0, 600.0});
-    LogisticService logistics(repository, geocoder, router, Coordinates{27.5615, 53.9045});
+    // Склад в Минске; координаты хранятся в формате OSRM: longitude, latitude.
+    const Coordinates warehouse{27.5615, 53.9045};
+    GeocodingService geocoder;
+    RoutingService router;
+    LogisticService logistics(repository, geocoder, router, warehouse);
 
     SimulationEngine simulation(repository, std::chrono::milliseconds(2000));
     simulation.subscribe([](const StatusEvent &event) {
@@ -107,6 +128,7 @@ int main() {
                   << " -> " << toString(event.Get_newstatus()) << "\n> ";
     });
     simulation.start();
+    simulation.resumeActiveOrders();
 
     int choice = -1;
     while (choice != 0) {

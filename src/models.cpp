@@ -36,6 +36,22 @@ Transport Courier::Get_transport() const { return transport; }
 bool Courier::Is_available() const { return available; }
 void Courier::Set_available(bool value) { available = value; }
 
+Vehicle::Vehicle()
+    : id(0), type(Transport::Car), capacity_kg(0.0), speed_kmh(0.0),
+      available(false) {}
+
+Vehicle::Vehicle(int id_value, Transport type_value, double capacity,
+                 double speed, bool available_value)
+    : id(id_value), type(type_value), capacity_kg(capacity),
+      speed_kmh(speed), available(available_value) {}
+
+int Vehicle::Get_id() const { return id; }
+Transport Vehicle::Get_type() const { return type; }
+double Vehicle::Get_capacity_kg() const { return capacity_kg; }
+double Vehicle::Get_speed_kmh() const { return speed_kmh; }
+bool Vehicle::Is_available() const { return available; }
+void Vehicle::Set_available(bool value) { available = value; }
+
 Order::Order()
     : id(0), client_id(0), courier_id(0), weight_kg(0.0),
       transport(Transport::Car), status(OrderStatus::Created), created_at(0),

@@ -30,6 +30,8 @@ public:
     virtual void updateOrderStatus(int id, OrderStatus status) = 0;
     virtual int addCourier(const std::string &name, Transport transport, bool available) = 0;
     virtual std::vector<Order> getOrdersByClient(int client_id) = 0;
+    // Заказы, которые ещё не завершены (Assigned / InTransit).
+    virtual std::vector<Order> getActiveOrders() = 0;
 };
 
 class FixedGeocoder final : public IGeocoder
