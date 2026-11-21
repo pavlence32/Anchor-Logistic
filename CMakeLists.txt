@@ -93,7 +93,13 @@ target_link_libraries(imgui_ui PUBLIC
     OpenGL::GL
 )
 
-add_executable(anchor_logistic src/main.cpp)
+add_executable(anchor_logistic
+    src/main.cpp
+    src/ImGuiApp.cpp
+)
+target_include_directories(anchor_logistic PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 target_link_libraries(anchor_logistic PRIVATE
     anchor_core
     imgui_ui
