@@ -4,10 +4,9 @@ project(AnchorLogistic LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# На macOS Homebrew ставит зависимости в /opt/homebrew (Apple Silicon)
-# или /usr/local (Intel); CMake не всегда ищет их автоматически.
 if(APPLE)
     list(APPEND CMAKE_PREFIX_PATH /opt/homebrew /usr/local)
 endif()
@@ -15,10 +14,8 @@ endif()
 find_package(Threads REQUIRED)
 find_package(SQLite3 REQUIRED)
 
-# HTTPS-запросы к Nominatim и OSRM (cpp-httplib работает через OpenSSL).
 find_package(OpenSSL REQUIRED)
 
-# Зависимости для оконного интерфейса Dear ImGui (GLFW + OpenGL).
 include(FetchContent)
 find_package(glfw3 REQUIRED)
 find_package(OpenGL REQUIRED)
@@ -33,7 +30,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
-# Разные версии CMake экспортируют разные имена цели SQLite3.
 if(TARGET SQLite3::SQLite3)
     set(SQLITE3_TARGET SQLite3::SQLite3)
 else()
@@ -69,7 +65,7 @@ target_link_libraries(anchor_core PUBLIC
     OpenSSL::Crypto
 )
 
-# cpp-httplib использует Winsock и хранилище сертификатов Windows.
+
 if(WIN32)
     target_link_libraries(anchor_core PUBLIC ws2_32 crypt32)
 endif()

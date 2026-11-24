@@ -8,6 +8,7 @@
 
 #include <iostream>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -73,7 +74,7 @@ private:
     Database& db_;
 };
 
-}  // namespace
+} 
 
 int main() {
     Database db("logistics.db");
@@ -88,13 +89,23 @@ int main() {
     GeocodingService geocoder;
     RoutingService router;
     LogisticService logistics(repo, geocoder, router);
+    SimulationEngine simulation(repo);
 
-    ImGuiApp app(1024, 700, "Anchor Logistic", logistics);
+    ImGuiApp app(1024, 720, "Anchor Logistic", logistics, &simulation);
     if (!app.init()) {
         std::cerr << "Не удалось инициализировать интерфейс ImGui\n";
         return 1;
     }
 
+   simulation.subscribe([&app](const StatusEvent& event) {
+        app.pushStatusLog("Заказ #" + std::to_string(event.Get_order()) +
+                          " | статус #" +
+                          std::to_string(static_cast<int>(event.Get_oldstatus())) +
+                          " -> #" +
+                          std::to_string(static_cast<int>(event.Get_newstatus())));
+    });
+
     app.run();
+    simulation.stop();
     return 0;
 }
