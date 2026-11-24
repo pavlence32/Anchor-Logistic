@@ -21,6 +21,7 @@ private:
     bool loadCyrillicFont();
     void renderFrame();
     void renderClientSection();
+    void renderOrderSection();
 
     int width_;
     int height_;
@@ -39,4 +40,12 @@ private:
     char reg_address_[256]{};
     std::string client_status_message_;
     bool client_status_is_error_ = false;
+
+    char order_pickup_[256]{};
+    char order_dropoff_[256]{};
+    char order_cargo_[128]{};
+    double order_weight_kg_ = 1.0;
+    int cancel_order_id_input_ = 1;
+    std::string order_status_message_;
+    bool order_status_is_error_ = false;
 };

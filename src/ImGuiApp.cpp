@@ -25,7 +25,7 @@ void glfwErrorCallback(int error, const char* description) {
               << (description ? description : "неизвестно") << '\n';
 }
 
-}  // namespace
+} 
 
 ImGuiApp::ImGuiApp(int width, int height, std::string title,
                    LogisticService& logistics)
@@ -187,11 +187,12 @@ void ImGuiApp::renderClientSection() {
 }
 
 void ImGuiApp::renderFrame() {
-    ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(820.0f, 560.0f), ImGuiCond_FirstUseEver);
+ ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(820.0f, 640.0f), ImGuiCond_FirstUseEver);
 
     ImGui::Begin("Anchor Logistic");
     renderClientSection();
+    renderOrderSection();
     ImGui::End();
 }
 
@@ -238,4 +239,65 @@ void ImGuiApp::shutdown() {
 
     glfwTerminate();
     initialized_ = false;
+}
+
+void ImGuiApp::renderOrderSection() {
+    ImGui::Spacing();
+    ImGui::Text("2. Заказы (создание и отмена до начала доставки)");
+    ImGui::Separator();
+
+    if (active_client_id_ <= 0) {
+        ImGui::TextDisabled(
+            "Сначала найдите или зарегистрируйте клиента в блоке выше.");
+        return;
+    }
+
+    ImGui::Text("Клиент для заказа: ID %d", active_client_id_);
+    ImGui::InputDouble("Вес груза (кг)", &order_weight_kg_, 0.5, 5.0, "%.2f");
+
+    if (ImGui::Button("Создать заказ")) {
+        try {
+            const int order_id =
+                logistics_.createOrder(active_client_id_, order_weight_kg_);
+
+            cancel_order_id_input_ = order_id;
+            order_status_message_ =
+                "Заказ создан, ID: " + std::to_string(order_id);
+            order_status_is_error_ = false;
+        } catch (const std::invalid_argument& e) {
+            order_status_message_ =
+                std::string("Ошибка данных заказа: ") + e.what();
+            order_status_is_error_ = true;
+        } catch (const std::runtime_error& e) {
+            order_status_message_ =
+                std::string("Не удалось создать заказ: ") + e.what();
+            order_status_is_error_ = true;
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::InputInt("ID заказа для отмены", &cancel_order_id_input_);
+    ImGui::SameLine();
+    if (ImGui::Button("Отменить заказ")) {
+        try {
+            logistics_.cancelOrder(cancel_order_id_input_);
+            order_status_message_ =
+                "Заказ #" + std::to_string(cancel_order_id_input_) + " отменён.";
+            order_status_is_error_ = false;
+        } catch (const std::invalid_argument& e) {
+            order_status_message_ = std::string("Ошибка отмены: ") + e.what();
+            order_status_is_error_ = true;
+        } catch (const std::runtime_error& e) {
+            order_status_message_ =
+                std::string("Нельзя отменить заказ: ") + e.what();
+            order_status_is_error_ = true;
+        }
+    }
+
+    if (!order_status_message_.empty()) {
+        ImVec4 color = order_status_is_error_
+                           ? ImVec4(0.95f, 0.35f, 0.35f, 1.0f)
+                           : ImVec4(0.35f, 0.85f, 0.45f, 1.0f);
+        ImGui::TextColored(color, "%s", order_status_message_.c_str());
+    }
 }
