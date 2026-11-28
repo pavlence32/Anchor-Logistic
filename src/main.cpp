@@ -73,7 +73,7 @@ private:
     Database& db_;
 };
 
-}
+}  // namespace
 
 int main() {
     Database db("logistics.db");
@@ -87,11 +87,15 @@ int main() {
     SqliteRepositoryAdapter repo(db);
     GeocodingService geocoder;
     RoutingService router;
-    LogisticService logistics(repo, geocoder, router);
+
+    const Coordinates warehouse(27.5615, 53.9045);
+    LogisticService logistics(repo, geocoder, router, warehouse);
     SimulationEngine simulation(repo);
 
-    router.lastError();
-    ImGuiApp app(1024, 720, "Anchor Logistic", logistics, repo, &simulation);
+    ImGuiApp app(
+        1024, 720, "Anchor Logistic", logistics, repo, &simulation,
+        [&router]() { return router.lastError(); });
+
     if (!app.init()) {
         std::cerr << "Не удалось инициализировать интерфейс ImGui\n";
         return 1;

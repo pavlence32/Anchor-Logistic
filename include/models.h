@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <ctime>
-#include "events.h"    // OrderStatus, Transport
+#include "events.h"    
 
 struct Coordinates
 {

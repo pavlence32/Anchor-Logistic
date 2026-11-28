@@ -1,5 +1,6 @@
 #include "ImGuiApp.h"
 
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -27,17 +28,29 @@ void glfwErrorCallback(int error, const char* description) {
               << (description ? description : "неизвестно") << '\n';
 }
 
-} 
+std::string formatClientInfo(const Client& client) {
+    const Coordinates coords = client.Get_coords();
+    return "ID: " + std::to_string(client.Get_id()) +
+           " | " + client.Get_name() +
+           " | " + client.Get_phone() +
+           " | " + client.Get_address() +
+           " (" + std::to_string(coords.longitude) + ", " +
+           std::to_string(coords.latitude) + ")";
+}
+
+}  // namespace
 
 ImGuiApp::ImGuiApp(int width, int height, std::string title,
                    LogisticService& logistics, IRepository& repo,
-                   SimulationEngine* simulation)
+                   SimulationEngine* simulation,
+                   ErrorDiagFn route_error_diag)
     : width_(width),
       height_(height),
       title_(std::move(title)),
       logistics_(logistics),
       repo_(repo),
-      simulation_(simulation) {}
+      simulation_(simulation),
+      route_error_diag_(std::move(route_error_diag)) {}
 
 ImGuiApp::~ImGuiApp() {
     shutdown();
@@ -122,29 +135,70 @@ void ImGuiApp::pushStatusLog(const std::string& message) {
     }
 }
 
+void ImGuiApp::refreshOrdersCache(bool force) {
+    if (active_client_id_ <= 0) {
+        cached_order_rows_.clear();
+        cached_order_ids_.clear();
+        cached_orders_client_id_ = 0;
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const bool interval_elapsed =
+        (now - last_orders_refresh_) >= std::chrono::milliseconds(500);
+    if (!force && cached_orders_client_id_ == active_client_id_ &&
+        !interval_elapsed) {
+        return;
+    }
+
+    const std::vector<Order> orders = repo_.getOrdersByClient(active_client_id_);
+    cached_order_rows_.clear();
+    cached_order_ids_.clear();
+    cached_order_rows_.reserve(orders.size() * 5);
+    cached_order_ids_.reserve(orders.size());
+
+    for (const Order& order : orders) {
+        char weight_buf[32]{};
+        char dist_buf[32]{};
+        std::snprintf(weight_buf, sizeof(weight_buf), "%.2f",
+                      order.Get_weight_kg());
+        std::snprintf(dist_buf, sizeof(dist_buf), "%.2f",
+                      order.Get_route().distance_m / 1000.0);
+
+        cached_order_ids_.push_back(order.Get_id());
+        cached_order_rows_.push_back(std::to_string(order.Get_id()));
+        cached_order_rows_.push_back(weight_buf);
+        cached_order_rows_.push_back(toString(order.Get_transport()));
+        cached_order_rows_.push_back(dist_buf);
+        cached_order_rows_.push_back(toString(order.Get_status()));
+    }
+
+    cached_orders_client_id_ = active_client_id_;
+    last_orders_refresh_ = now;
+}
+
 void ImGuiApp::renderClientSection() {
     ImGui::Text("1. Клиент (поиск по ID или регистрация)");
     ImGui::Separator();
 
+    ImGui::SetNextItemWidth(160.0f);
     ImGui::InputInt("ID клиента", &client_id_input_);
     ImGui::SameLine();
     if (ImGui::Button("Найти клиента")) {
         Client client;
         if (logistics_.findClient(client_id_input_, client)) {
             active_client_id_ = client.Get_id();
-            active_client_info_ =
-                "ID: " + std::to_string(client.Get_id()) +
-                " | " + client.Get_name() +
-                " | " + client.Get_phone() +
-                " | " + client.Get_address();
+            active_client_info_ = formatClientInfo(client);
             client_status_message_ = "Клиент найден и выбран.";
             client_status_is_error_ = false;
+            refreshOrdersCache(true);
         } else {
             active_client_id_ = 0;
             active_client_info_.clear();
             client_status_message_ =
                 "Клиент с таким ID не найден. Можно зарегистрировать нового ниже.";
             client_status_is_error_ = true;
+            refreshOrdersCache(true);
         }
     }
 
@@ -154,8 +208,11 @@ void ImGuiApp::renderClientSection() {
 
     ImGui::Spacing();
     ImGui::Text("Регистрация нового клиента");
+    ImGui::SetNextItemWidth(320.0f);
     ImGui::InputText("Имя", reg_name_, sizeof(reg_name_));
+    ImGui::SetNextItemWidth(320.0f);
     ImGui::InputText("Телефон", reg_phone_, sizeof(reg_phone_));
+    ImGui::SetNextItemWidth(320.0f);
     ImGui::InputText("Адрес", reg_address_, sizeof(reg_address_));
 
     if (ImGui::Button("Зарегистрировать")) {
@@ -167,11 +224,7 @@ void ImGuiApp::renderClientSection() {
 
             Client client;
             if (logistics_.findClient(new_id, client)) {
-                active_client_info_ =
-                    "ID: " + std::to_string(client.Get_id()) +
-                    " | " + client.Get_name() +
-                    " | " + client.Get_phone() +
-                    " | " + client.Get_address();
+                active_client_info_ = formatClientInfo(client);
             } else {
                 active_client_info_ = "ID: " + std::to_string(new_id);
             }
@@ -182,6 +235,7 @@ void ImGuiApp::renderClientSection() {
             client_status_message_ =
                 "Клиент зарегистрирован, ID: " + std::to_string(new_id);
             client_status_is_error_ = false;
+            refreshOrdersCache(true);
         } catch (const std::invalid_argument& e) {
             client_status_message_ = std::string("Ошибка ввода: ") + e.what();
             client_status_is_error_ = true;
@@ -211,6 +265,7 @@ void ImGuiApp::renderOrderSection() {
     }
 
     ImGui::Text("Клиент для заказа: ID %d", active_client_id_);
+    ImGui::SetNextItemWidth(200.0f);
     ImGui::InputDouble("Вес груза (кг)", &order_weight_kg_, 0.5, 5.0, "%.2f");
 
     if (ImGui::Button("Создать заказ")) {
@@ -227,18 +282,27 @@ void ImGuiApp::renderOrderSection() {
                 "Заказ создан, ID: " + std::to_string(order_id);
             order_status_is_error_ = false;
             pushStatusLog("Создан заказ #" + std::to_string(order_id));
+            refreshOrdersCache(true);
         } catch (const std::invalid_argument& e) {
             order_status_message_ =
                 std::string("Ошибка данных заказа: ") + e.what();
             order_status_is_error_ = true;
         } catch (const std::runtime_error& e) {
-            order_status_message_ =
-                std::string("Не удалось создать заказ: ") + e.what();
+            std::string details = e.what();
+            if (route_error_diag_) {
+                const std::string router_err = route_error_diag_();
+                if (!router_err.empty()) {
+                    details += " (" + router_err + ")";
+                }
+            }
+            order_status_message_ = "Не удалось создать заказ: " + details;
             order_status_is_error_ = true;
+            pushStatusLog("Ошибка создания заказа: " + details);
         }
     }
 
     ImGui::Spacing();
+    ImGui::SetNextItemWidth(160.0f);
     ImGui::InputInt("ID заказа для отмены", &cancel_order_id_input_);
     ImGui::SameLine();
     if (ImGui::Button("Отменить заказ")) {
@@ -247,7 +311,9 @@ void ImGuiApp::renderOrderSection() {
             order_status_message_ =
                 "Заказ #" + std::to_string(cancel_order_id_input_) + " отменён.";
             order_status_is_error_ = false;
-            pushStatusLog("Отменён заказ #" + std::to_string(cancel_order_id_input_));
+            pushStatusLog("Отменён заказ #" +
+                          std::to_string(cancel_order_id_input_));
+            refreshOrdersCache(true);
         } catch (const std::invalid_argument& e) {
             order_status_message_ = std::string("Ошибка отмены: ") + e.what();
             order_status_is_error_ = true;
@@ -266,7 +332,9 @@ void ImGuiApp::renderOrderSection() {
         ImVec4 color = order_status_is_error_
                            ? ImVec4(0.95f, 0.35f, 0.35f, 1.0f)
                            : ImVec4(0.35f, 0.85f, 0.45f, 1.0f);
-        ImGui::TextColored(color, "%s", order_status_message_.c_str());
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+        ImGui::TextWrapped("%s", order_status_message_.c_str());
+        ImGui::PopStyleColor();
     }
 }
 
@@ -281,47 +349,56 @@ void ImGuiApp::renderOrdersTableSection() {
     }
 
     if (ImGui::Button("Обновить список заказов")) {
+        refreshOrdersCache(true);
         order_status_message_ = "Список заказов обновлён.";
         order_status_is_error_ = false;
+    } else {
+        refreshOrdersCache(false);
     }
-
-    const std::vector<Order> orders = repo_.getOrdersByClient(active_client_id_);
 
     if (ImGui::BeginTable("ClientOrdersTable", 6,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                              ImGuiTableFlags_ScrollY,
-                          ImVec2(0.0f, 170.0f))) {
-        ImGui::TableSetupColumn("ID");
-        ImGui::TableSetupColumn("Вес (кг)");
-        ImGui::TableSetupColumn("Транспорт");
-        ImGui::TableSetupColumn("Дистанция (км)");
-        ImGui::TableSetupColumn("Статус");
-        ImGui::TableSetupColumn("Действие");
+                              ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_Resizable,
+                          ImVec2(0.0f, 175.0f))) {
+        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 55.0f);
+        ImGui::TableSetupColumn("Вес (кг)", ImGuiTableColumnFlags_WidthFixed,
+                                90.0f);
+        ImGui::TableSetupColumn("Транспорт", ImGuiTableColumnFlags_WidthFixed,
+                                200.0f);
+        ImGui::TableSetupColumn("Дистанция (км)",
+                                ImGuiTableColumnFlags_WidthFixed, 125.0f);
+        ImGui::TableSetupColumn("Статус", ImGuiTableColumnFlags_WidthFixed,
+                                120.0f);
+        ImGui::TableSetupColumn("Действие", ImGuiTableColumnFlags_WidthFixed,
+                                100.0f);
         ImGui::TableHeadersRow();
 
-        for (const Order& order : orders) {
+        for (std::size_t i = 0; i < cached_order_ids_.size(); ++i) {
+            const std::size_t base = i * 5;
+            const int order_id = cached_order_ids_[i];
+
             ImGui::TableNextRow();
 
             ImGui::TableSetColumnIndex(0);
-            ImGui::Text("%d", order.Get_id());
+            ImGui::TextUnformatted(cached_order_rows_[base + 0].c_str());
 
             ImGui::TableSetColumnIndex(1);
-            ImGui::Text("%.2f", order.Get_weight_kg());
+            ImGui::TextUnformatted(cached_order_rows_[base + 1].c_str());
 
             ImGui::TableSetColumnIndex(2);
-            ImGui::TextUnformatted(toString(order.Get_transport()));
+            ImGui::TextUnformatted(cached_order_rows_[base + 2].c_str());
 
             ImGui::TableSetColumnIndex(3);
-            ImGui::Text("%.2f", order.Get_route().distance_m / 1000.0);
+            ImGui::TextUnformatted(cached_order_rows_[base + 3].c_str());
 
             ImGui::TableSetColumnIndex(4);
-            ImGui::TextUnformatted(toString(order.Get_status()));
+            ImGui::TextUnformatted(cached_order_rows_[base + 4].c_str());
 
             ImGui::TableSetColumnIndex(5);
-            const std::string label =
-                "Выбрать##" + std::to_string(order.Get_id());
+            const std::string label = "Выбрать##" + std::to_string(order_id);
             if (ImGui::SmallButton(label.c_str())) {
-                cancel_order_id_input_ = order.Get_id();
+                cancel_order_id_input_ = order_id;
             }
         }
 
@@ -357,7 +434,7 @@ void ImGuiApp::renderSimulationSection() {
         pushStatusLog("Запрошено возобновление активных заказов.");
     }
 
-    ImGui::BeginChild("StatusEventsLog", ImVec2(0.0f, 110.0f), true);
+    ImGui::BeginChild("StatusEventsLog", ImVec2(0.0f, 120.0f), true);
     {
         std::lock_guard<std::mutex> lock(events_mutex_);
         for (const auto& line : recent_events_) {
@@ -372,7 +449,7 @@ void ImGuiApp::renderSimulationSection() {
 
 void ImGuiApp::renderFrame() {
     ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(960.0f, 720.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(980.0f, 740.0f), ImGuiCond_FirstUseEver);
 
     ImGui::Begin("Anchor Logistic");
     renderClientSection();

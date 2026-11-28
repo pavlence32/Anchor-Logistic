@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -11,9 +13,12 @@ struct GLFWwindow;
 
 class ImGuiApp {
 public:
+    using ErrorDiagFn = std::function<std::string()>;
+
     ImGuiApp(int width, int height, std::string title,
              LogisticService& logistics, IRepository& repo,
-             SimulationEngine* simulation = nullptr);
+             SimulationEngine* simulation = nullptr,
+             ErrorDiagFn route_error_diag = nullptr);
     ~ImGuiApp();
 
     ImGuiApp(const ImGuiApp&) = delete;
@@ -26,6 +31,7 @@ public:
 
 private:
     bool loadCyrillicFont();
+    void refreshOrdersCache(bool force = false);
     void renderFrame();
     void renderClientSection();
     void renderOrderSection();
@@ -38,6 +44,7 @@ private:
     LogisticService& logistics_;
     IRepository& repo_;
     SimulationEngine* simulation_ = nullptr;
+    ErrorDiagFn route_error_diag_;
 
     GLFWwindow* window_ = nullptr;
     bool initialized_ = false;
@@ -56,6 +63,11 @@ private:
     int cancel_order_id_input_ = 1;
     std::string order_status_message_;
     bool order_status_is_error_ = false;
+
+    std::vector<std::string> cached_order_rows_;
+    std::vector<int> cached_order_ids_;
+    int cached_orders_client_id_ = 0;
+    std::chrono::steady_clock::time_point last_orders_refresh_{};
 
     mutable std::mutex events_mutex_;
     std::vector<std::string> recent_events_;
