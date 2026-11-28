@@ -4,12 +4,11 @@
 #include "LogisticService.h"
 #include "RoutingService.h"
 #include "database.h"
+#include "events.h"
 #include "interface.h"
 
 #include <iostream>
-#include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace {
@@ -74,7 +73,7 @@ private:
     Database& db_;
 };
 
-} 
+}
 
 int main() {
     Database db("logistics.db");
@@ -91,18 +90,18 @@ int main() {
     LogisticService logistics(repo, geocoder, router);
     SimulationEngine simulation(repo);
 
-    ImGuiApp app(1024, 720, "Anchor Logistic", logistics, &simulation);
+    router.lastError();
+    ImGuiApp app(1024, 720, "Anchor Logistic", logistics, repo, &simulation);
     if (!app.init()) {
         std::cerr << "Не удалось инициализировать интерфейс ImGui\n";
         return 1;
     }
 
-   simulation.subscribe([&app](const StatusEvent& event) {
-        app.pushStatusLog("Заказ #" + std::to_string(event.Get_order()) +
-                          " | статус #" +
-                          std::to_string(static_cast<int>(event.Get_oldstatus())) +
-                          " -> #" +
-                          std::to_string(static_cast<int>(event.Get_newstatus())));
+    simulation.subscribe([&app](const StatusEvent& event) {
+        app.pushStatusLog(
+            "Заказ #" + std::to_string(event.Get_order()) + ": " +
+            std::string(toString(event.Get_oldstatus())) + " -> " +
+            std::string(toString(event.Get_newstatus())));
     });
 
     app.run();

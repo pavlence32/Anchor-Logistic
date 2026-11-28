@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+class IRepository;
 class LogisticService;
 class SimulationEngine;
 struct GLFWwindow;
@@ -11,7 +12,8 @@ struct GLFWwindow;
 class ImGuiApp {
 public:
     ImGuiApp(int width, int height, std::string title,
-             LogisticService& logistics, SimulationEngine* simulation = nullptr);
+             LogisticService& logistics, IRepository& repo,
+             SimulationEngine* simulation = nullptr);
     ~ImGuiApp();
 
     ImGuiApp(const ImGuiApp&) = delete;
@@ -21,7 +23,7 @@ public:
     void run();
     void shutdown();
     void pushStatusLog(const std::string& message);
-    
+
 private:
     bool loadCyrillicFont();
     void renderFrame();
@@ -30,11 +32,11 @@ private:
     void renderOrdersTableSection();
     void renderSimulationSection();
 
-
     int width_;
     int height_;
     std::string title_;
     LogisticService& logistics_;
+    IRepository& repo_;
     SimulationEngine* simulation_ = nullptr;
 
     GLFWwindow* window_ = nullptr;

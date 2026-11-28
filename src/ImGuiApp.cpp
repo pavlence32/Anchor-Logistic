@@ -12,6 +12,8 @@
 #endif
 
 #include "LogisticService.h"
+#include "events.h"
+#include "interface.h"
 #include "models.h"
 
 #include "imgui.h"
@@ -25,14 +27,16 @@ void glfwErrorCallback(int error, const char* description) {
               << (description ? description : "неизвестно") << '\n';
 }
 
-}
+} 
 
 ImGuiApp::ImGuiApp(int width, int height, std::string title,
-                   LogisticService& logistics, SimulationEngine* simulation)
+                   LogisticService& logistics, IRepository& repo,
+                   SimulationEngine* simulation)
     : width_(width),
       height_(height),
       title_(std::move(title)),
       logistics_(logistics),
+      repo_(repo),
       simulation_(simulation) {}
 
 ImGuiApp::~ImGuiApp() {
@@ -214,6 +218,10 @@ void ImGuiApp::renderOrderSection() {
             const int order_id =
                 logistics_.createOrder(active_client_id_, order_weight_kg_);
 
+            if (simulation_ != nullptr) {
+                simulation_->enqueue(order_id);
+            }
+
             cancel_order_id_input_ = order_id;
             order_status_message_ =
                 "Заказ создан, ID: " + std::to_string(order_id);
@@ -243,9 +251,13 @@ void ImGuiApp::renderOrderSection() {
         } catch (const std::invalid_argument& e) {
             order_status_message_ = std::string("Ошибка отмены: ") + e.what();
             order_status_is_error_ = true;
-        } catch (const std::runtime_error& e) {
+        } catch (const std::logic_error& e) {
             order_status_message_ =
                 std::string("Нельзя отменить заказ: ") + e.what();
+            order_status_is_error_ = true;
+        } catch (const std::runtime_error& e) {
+            order_status_message_ =
+                std::string("Ошибка при отмене заказа: ") + e.what();
             order_status_is_error_ = true;
         }
     }
@@ -273,15 +285,46 @@ void ImGuiApp::renderOrdersTableSection() {
         order_status_is_error_ = false;
     }
 
-    if (ImGui::BeginTable("ClientOrdersTable", 4,
+    const std::vector<Order> orders = repo_.getOrdersByClient(active_client_id_);
+
+    if (ImGui::BeginTable("ClientOrdersTable", 6,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                               ImGuiTableFlags_ScrollY,
                           ImVec2(0.0f, 170.0f))) {
         ImGui::TableSetupColumn("ID");
         ImGui::TableSetupColumn("Вес (кг)");
+        ImGui::TableSetupColumn("Транспорт");
+        ImGui::TableSetupColumn("Дистанция (км)");
         ImGui::TableSetupColumn("Статус");
         ImGui::TableSetupColumn("Действие");
         ImGui::TableHeadersRow();
+
+        for (const Order& order : orders) {
+            ImGui::TableNextRow();
+
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("%d", order.Get_id());
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%.2f", order.Get_weight_kg());
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::TextUnformatted(toString(order.Get_transport()));
+
+            ImGui::TableSetColumnIndex(3);
+            ImGui::Text("%.2f", order.Get_route().distance_m / 1000.0);
+
+            ImGui::TableSetColumnIndex(4);
+            ImGui::TextUnformatted(toString(order.Get_status()));
+
+            ImGui::TableSetColumnIndex(5);
+            const std::string label =
+                "Выбрать##" + std::to_string(order.Get_id());
+            if (ImGui::SmallButton(label.c_str())) {
+                cancel_order_id_input_ = order.Get_id();
+            }
+        }
+
         ImGui::EndTable();
     }
 }
